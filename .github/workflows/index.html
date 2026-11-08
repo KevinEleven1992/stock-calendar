@@ -1,1 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A股交易日历 · 数据看板</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --border:#e6e8eb; --text:#12161c;
+    --muted:#6b7280; --up:#d9251d; --down:#15803d; --accent:#2563eb;
+    --shadow:0 1px 2px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1320px;margin:0 auto;padding:20px 18px 60px;}
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  h1{font-size:20px;margin:0;letter-spacing:.5px}
+  .stamp{font-size:12px;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+  .sec-title{font-size:13px;font-weight:600;color:var(--muted);margin:22px 0 10px;letter-spacing:.4px}
 
+  /* 宏观栏 */
+  .macro{display:flex;flex-direction:column;gap:10px}
+  .macro-row{display:flex;align-items:stretch;gap:10px;padding:12px 14px;background:var(--card);
+    border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow-x:auto}
+  .macro-flag{flex:0 0 auto;width:74px;display:flex;flex-direction:column;justify-content:center;
+    font-size:13px;font-weight:700;color:var(--text);border-right:1px solid var(--border);padding-right:12px}
+  .macro-flag small{font-weight:400;font-size:11px;color:var(--muted);margin-top:2px}
+  .m-item{flex:1 1 0;min-width:96px;padding:2px 10px;border-right:1px dashed #eef0f2}
+  .m-item:last-child{border-right:0}
+  .m-label{font-size:11px;color:var(--muted);white-space:nowrap}
+  .m-value{font-size:19px;font-weight:700;line-height:1.25;font-variant-numeric:tabular-nums}
+  .m-value .unit{font-size:11px;font-weight:500;color:var(--muted);margin-left:2px}
+  .m-period{font-size:10px;color:#9aa0a6;margin-top:1px}
+  .pos{color:var(--up)} .neg{color:var(--down)}
+
+  /* 走势图 */
+  .trend{padding:14px 14px 8px}
+  .trend-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .trend-title{font-size:14px;font-weight:600}
+  .layers{display:flex;gap:6px;flex-wrap:wrap}
+  .layer-btn{border:1px solid var(--border);background:#fff;color:var(--muted);font-size:12px;
+    padding:5px 11px;border-radius:999px;cursor:pointer;transition:.15s}
+  .layer-btn:hover{border-color:#c9ced6;color:var(--text)}
+  .layer-btn.on{background:#eff4ff;border-color:#b9cdfb;color:var(--accent);font-weight:600}
+  .chart-wrap{position:relative;width:100%;height:440px;margin-top:6px}
+  #chart{width:100%;height:100%;display:block;cursor:crosshair}
+  .chart-tooltip{position:absolute;background:rgba(17,24,39,.95);color:#fff;padding:8px 12px;
+    border-radius:8px;font-size:11.5px;pointer-events:none;display:none;z-index:10;
+    box-shadow:0 6px 18px rgba(0,0,0,.22);min-width:170px;line-height:1.55}
+  .chart-tooltip .tt-date{font-weight:700;font-size:12px;margin-bottom:5px;padding-bottom:4px;
+    border-bottom:1px solid rgba(255,255,255,.15)}
+  .chart-tooltip .tt-row{display:flex;align-items:center;gap:6px;padding:1.5px 0;font-variant-numeric:tabular-nums}
+  .chart-tooltip .tt-row b{margin-left:auto;color:#fff;font-weight:600}
+  .chart-tooltip .tt-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .trend-note{font-size:11px;color:#9aa0a6;padding:8px 2px 4px;line-height:1.65}
+
+  /* 日历 */
+  .cal-head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+  .cal-month{font-size:16px;font-weight:700;min-width:110px}
+  .nav-btn{border:1px solid var(--border);background:#fff;border-radius:8px;width:30px;height:30px;
+    cursor:pointer;font-size:14px;color:var(--muted);line-height:1}
+  .nav-btn:hover{color:var(--text);border-color:#c9ced6}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  .cal-dow{text-align:center;font-size:11px;color:var(--muted);padding:2px 0 4px;font-weight:600}
+  .cal-day{background:var(--card);border:1px solid var(--border);border-radius:10px;
+    min-height:128px;padding:7px 8px;position:relative;overflow:hidden;transition:.12s}
+  .cal-day.off{background:#f1f3f5;border-color:#eceef1;color:#b3b8bf;min-height:128px}
+  .cal-day.trade{cursor:default}
+  .cal-day.trade:hover{border-color:#b9cdfb;box-shadow:0 3px 12px rgba(37,99,235,.10);z-index:2}
+  .cal-day.today{border-color:var(--accent);box-shadow:0 0 0 2px rgba(37,99,235,.14)}
+  .cal-day.empty{background:#fafbfc}
+  .cal-day.empty .d-line.muted{color:#b0b6bd;font-style:italic}
+  .d-num{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:4px}
+  .d-tag{font-size:9.5px;font-weight:600;color:var(--accent);background:#eff4ff;padding:0 4px;border-radius:3px}
+  .d-tag.future{color:#b45309;background:#fff7ed}
+  .d-line{font-size:10.5px;line-height:1.55;color:#4b5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .d-line b{font-weight:600;color:#1f2937;font-variant-numeric:tabular-nums}
+  .d-badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:3px}
+  .badge{font-size:9.5px;padding:1px 5px;border-radius:4px;background:#eef2ff;color:#3b5bdb;font-weight:600}
+  .badge.warn{background:#fff4e6;color:#b45309}
+  .tag-up{color:var(--up)} .tag-dn{color:var(--down)}
+
+  /* 悬浮面板 */
+  .popover{position:fixed;z-index:1000;width:344px;max-height:72vh;overflow:auto;display:none;
+    background:#fff;border:1px solid var(--border);border-radius:12px;
+    box-shadow:0 14px 36px rgba(16,24,40,.16);padding:12px 14px 14px}
+  .pop-head{font-size:14px;font-weight:700;display:flex;align-items:baseline;gap:8px;
+    padding-bottom:8px;border-bottom:1px solid #f0f2f4;margin-bottom:8px}
+  .pop-head .wk{font-size:11px;color:var(--muted);font-weight:400}
+  .pop-sec{margin-top:10px}
+  .pop-title{font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.3px;margin-bottom:5px}
+  .pop-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2.5px 0;color:#4b5563}
+  .pop-row b{font-variant-numeric:tabular-nums;color:#111827;font-weight:600}
+  .pop-note{font-size:11px;color:#8b929a;line-height:1.6;margin-top:3px}
+  .pop-list{font-size:11.5px;line-height:1.75;color:#4b5563}
+  .pop-list .nm{color:#111827;font-weight:600}
+
+  @media (max-width:760px){
+    .cal-day{min-height:100px;padding:5px 6px}
+    .d-line{font-size:9.5px}
+    .chart-wrap{height:340px}
+    .macro-flag{width:58px;font-size:12px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>A股交易日历 · 数据看板</h1>
+      <div class="stamp" id="stamp">数据生成时间：加载中…</div>
+    </div>
+    <div class="stamp" id="src-note"></div>
+  </header>
+
+  <div class="macro" id="macro"></div>
+
+  <div class="sec-title">近一月市场关键序列</div>
+  <div class="card trend">
+    <div class="trend-head">
+      <div class="trend-title" id="trend-title">上证指数 · 两融 / 成交额</div>
+      <div class="layers" id="layers"></div>
+    </div>
+    <div class="chart-wrap" id="chart-wrap">
+      <canvas id="chart"></canvas>
+      <div class="chart-tooltip" id="chart-tt"></div>
+    </div>
+    <div class="trend-note">
+      底图为上证指数（灰色面积）。彩色序列可切换图层：每个序列用不同形状与颜色区分，数据点上方标注数值（保留 1 位小数）；点密集时重叠标签自动跳过，悬浮查看完整值。
+      ETF 序列为每日净申购金额（Δ份额 × 成交均价），并列展示当日总成交额；净申购金额 ≠ 国家队交易额。
+      中美 5 年期利率为日频收盘收益率，非 08:15 时刻值。
+    </div>
+  </div>
+
+  <div class="sec-title">交易日历</div>
+  <div class="cal-head">
+    <button class="nav-btn" id="prev-month" aria-label="上一月">‹</button>
+    <div class="cal-month" id="cal-month"></div>
+    <button class="nav-btn" id="next-month" aria-label="下一月">›</button>
+    <span class="stamp">悬浮或点击交易日格子查看完整数据</span>
+  </div>
+  <div class="cal-grid" id="dow"></div>
+  <div class="cal-grid" id="cal" style="margin-top:8px"></div>
+</div>
+
+<div class="popover" id="popover"></div>
+
+<script>
+/* =========================================================
+ * 工具
+ * ========================================================= */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const f1 = n => (n == null || Number.isNaN(Number(n))) ? '—' : Number(n).toFixed(1);
+const pad2 = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+const isWeekend = d => { const w = d.getDay(); return w === 0 || w === 6; };
+const addDays = (s, n) => { const d = new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return ymd(d); };
+const nextTrading = s => { let d = s; while (isWeekend(new Date(d+'T00:00:00'))) d = addDays(d,1); return d; };
+function tradingDays(start, end){
+  const out = [], d = new Date(start+'T00:00:00'), e = new Date(end+'T00:00:00');
+  while (d <= e) { if (!isWeekend(d)) out.push(ymd(d)); d.setDate(d.getDate()+1); }
+  return out;
+}
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+/* =========================================================
+ * 演示数据（真实 JSON 加载失败时回退）
+ * ========================================================= */
+function buildMock(){
+  const rnd = mulberry32(20261105);
+  const R  = (a,b) => a + rnd()*(b-a);
+  const RI = (a,b) => Math.floor(R(a,b+1));
+  const r1 = n => Math.round(n*10)/10;
+  const TODAY = '2026-11-05';
+
+  const macro = {
+    generated_at: TODAY + 'T08:15:00+08:00',
+    china: {
+      cpi:   { label:'CPI 同比', value: 0.3,  period:'2026-10', unit:'%' },
+      ppi:   { label:'PPI 同比', value:-1.8,  period:'2026-10', unit:'%' },
+      pmi:   { label:'制造业 PMI', value: 49.8, period:'2026-10', unit:'' },
+      job:   { label:'城镇调查失业率', value: 5.1, period:'2026-09', unit:'%' },
+      m1:    { label:'M1 同比', value: 2.1,  period:'2026-10', unit:'%' },
+      m2:    { label:'M2 同比', value: 7.5,  period:'2026-10', unit:'%' }
+    },
+    usa: {
+      cpi:   { label:'CPI 同比', value: 3.2,  period:'2026-09', unit:'%' },
+      core:  { label:'核心 CPI 同比', value: 3.6, period:'2026-09', unit:'%' },
+      ppi:   { label:'PPI 同比', value: 2.4,  period:'2026-09', unit:'%' },
+      pmi:   { label:'ISM 制造业 PMI', value: 48.7, period:'2026-10', unit:'' },
+      job:   { label:'失业率', value: 4.1, period:'2026-10', unit:'%' }
+    }
+  };
+
+  const ops = [];
+  tradingDays('2026-09-15', TODAY).forEach(d => {
+    if (rnd() < 0.15) return;
+    const terms = [7, 14, 28];
+    const term = terms[Math.floor(rnd() * terms.length)];
+    const amount = r1(R(400, 2800));
+    ops.push({ date:d, term, amount, rate:1.40, maturity: nextTrading(addDays(d, term)) });
+  });
+  const opByDay = {}, matByDay = {};
+  ops.forEach(o => {
+    opByDay[o.date] = (opByDay[o.date] || 0) + o.amount;
+    matByDay[o.maturity] = (matByDay[o.maturity] || 0) + o.amount;
+  });
+
+  const days = {};
+  const allDays = tradingDays('2026-10-01', '2026-12-31');
+  allDays.forEach(d => {
+    const future = d > TODAY;
+    const mat = r1(matByDay[d] || 0);
+    days[d] = {
+      trading: true,
+      repo: {
+        operation: future ? null : r1(opByDay[d] || 0),
+        maturity: mat,
+        detail: future ? [] : ops.filter(o => o.date === d)
+          .map(o => `${o.term}天逆回购 ${f1(o.amount)}亿 @${o.rate.toFixed(2)}%`)
+      },
+      top5: future ? null : { net: RI(-3000, 3000) },
+      citic: future ? null : {
+        ih: RI(-800, 800), if: RI(-1500, 1500),
+        ic: RI(-900, 900), im: RI(-700, 700)
+      },
+      sentiment: future ? null : {
+        ih: r1(R(-32, 32)), if: r1(R(-32, 32)),
+        ic: r1(R(-32, 32)), im: r1(R(-32, 32))
+      },
+      unlock: future ? [] : Array.from({length: RI(0,3)}, (_, i) => ({
+        code: '60' + RI(1000, 9999),
+        name: ['示例科技','示例能源','示例医药','示例制造'][i % 4],
+        shares: r1(R(0.1, 8)), value: r1(R(0.5, 40))
+      })),
+      change: future ? [] : Array.from({length: RI(0,2)}, (_, i) => ({
+        code: '00' + RI(1000, 9999),
+        name: ['示例材料','示例消费'][i % 2],
+        type: rnd() > 0.5 ? '增持' : '减持',
+        shares: RI(50, 2000),
+        value: Math.round(R(0.05, 3) * 100) / 100
+      }))
+    };
+  });
+
+  const tDays = tradingDays('2026-10-08', TODAY);
+  let sse = 3380;
+  const mk = (name, unit, color, symbol, gen) => ({
+    name, unit, color, symbol, data: tDays.map((_, i) => gen(i))
+  });
+  const trend = {
+    generated_at: TODAY + 'T08:15:00+08:00',
+    dates: tDays,
+    series: {
+      sse_index:   mk('上证指数','点','#9aa0a6','none',       () => { sse += R(-28,32); return r1(sse); }),
+      margin:      mk('两融余额','亿元','#f59e0b','circle',   () => r1(18900 + R(-260, 320))),
+      turnover:    mk('两市成交额','亿元','#8b5cf6','triangle',() => r1(8200 + R(-1800, 2600))),
+      etf_510300:  mk('华泰柏瑞300ETF 净申购','亿元','#2563eb','circle',   () => r1(R(-6, 9))),
+      etf_510300_amount: mk('华泰柏瑞300ETF 总成交额','亿元','#93c5fd','rect', () => r1(R(10, 25))),
+      etf_510330:  mk('华夏300ETF 净申购','亿元','#0ea5e9','rect',       () => r1(R(-4, 7))),
+      etf_510330_amount: mk('华夏300ETF 总成交额','亿元','#7dd3fc','circle', () => r1(R(6, 16))),
+      etf_510310:  mk('易方达300ETF 净申购','亿元','#10b981','triangle',   () => r1(R(-3, 5))),
+      etf_510310_amount: mk('易方达300ETF 总成交额','亿元','#6ee7b7','diamond', () => r1(R(3, 10))),
+      etf_510050:  mk('华夏50ETF 净申购','亿元','#a855f7','diamond',      () => r1(R(-2, 4))),
+      etf_510050_amount: mk('华夏50ETF 总成交额','亿元','#d8b4fe','rect', () => r1(R(5, 12))),
+      gold_9am:    mk('纽约金 08:15','美元/盎司','#d4a017','diamond', () => r1(4020 + R(-45, 58))),
+      brent_9am:   mk('布伦特原油 08:15','美元/桶','#0f766e','rect',  () => r1(78 + R(-2.2, 2.8))),
+      cn_5y:       mk('中国5年期国债收益率（收盘）','%','#dc2626','circle', () => r1(1.62 + R(-.08, .08))),
+      us_5y:       mk('美国5年期国债收益率（收盘）','%','#2563eb','triangle', () => r1(3.92 + R(-.14, .14)))
+    }
+  };
+
+  return { macro, trend, calendar: { generated_at: TODAY + 'T08:15:00+08:00', days } };
+}
+
+/* =========================================================
+ * 数据加载
+ * ========================================================= */
+const MOCK = buildMock();
+let DATA = { macro: MOCK.macro, trend: MOCK.trend, calendar: MOCK.calendar };
+let IS_MOCK = true;
+
+async function loadJSON(path){
+  if (location.protocol === 'file:') throw new Error('file protocol');
+  const r = await fetch(path, { cache:'no-store' });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function boot(){
+  try {
+    const [macro, trend, calendar] = await Promise.all([
+      loadJSON('data/processed/macro.json'),
+      loadJSON('data/processed/trend.json'),
+      loadJSON('data/processed/calendar.json')
+    ]);
+    DATA = { macro, trend, calendar };
+    IS_MOCK = false;
+  } catch (e) { IS_MOCK = true; }
+
+  $('#src-note').textContent = IS_MOCK
+    ? '当前为演示数据（未找到 data/processed/*.json）'
+    : '数据来源：data/processed/*.json';
+  $('#stamp').textContent = '数据生成时间：' + (DATA.calendar.generated_at || '—');
+
+  try { renderMacro(DATA.macro); } catch(e){ console.error('macro:', e); }
+  try { renderLayers(); }          catch(e){ console.error('layers:', e); }
+  try { renderTrend(); }           catch(e){ console.error('trend:', e); }
+  try { initCalendar(); }          catch(e){ console.error('calendar:', e); }
+}
+
+/* =========================================================
+ * 宏观
+ * ========================================================= */
+function macroItem(m){
+  if (!m) return '';
+  const v = Number(m.value);
+  const cls = Number.isFinite(v) ? (v > 0 ? 'pos' : v < 0 ? 'neg' : '') : '';
+  return `<div class="m-item">
+    <div class="m-label">${esc(m.label)}</div>
+    <div class="m-value ${cls}">${f1(m.value)}<span class="unit">${esc(m.unit || '')}</span></div>
+    <div class="m-period">${esc(m.period || '')}</div>
+  </div>`;
+}
+function renderMacro(m){
+  if (!m) return;
+  const cn = m.china || {}, us = m.usa || {};
+  const cnOrder = ['cpi','ppi','pmi','job','m1','m2'];
+  const usOrder = ['cpi','core','ppi','pmi','job'];
+  $('#macro').innerHTML = `
+    <div class="macro-row">
+      <div class="macro-flag">中国<small>CHN</small></div>
+      ${cnOrder.map(k => macroItem(cn[k])).join('')}
+    </div>
+    <div class="macro-row">
+      <div class="macro-flag">美国<small>USA</small></div>
+      ${usOrder.map(k => macroItem(us[k])).join('')}
+    </div>`;
+}
+
+/* =========================================================
+ * Canvas 折线图
+ * ========================================================= */
+function drawSymbol(ctx, x, y, shape, size, color){
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (shape === 'circle')      ctx.arc(x, y, size, 0, Math.PI*2);
+  else if (shape === 'square' || shape === 'rect')
+    ctx.rect(x-size, y-size, size*2, size*2);
+  else if (shape === 'triangle') {
+    ctx.moveTo(x, y - size*1.35);
+    ctx.lineTo(x + size*1.15, y + size*0.9);
+    ctx.lineTo(x - size*1.15, y + size*0.9);
+    ctx.closePath();
+  } else if (shape === 'diamond') {
+    ctx.moveTo(x, y - size*1.4);
+    ctx.lineTo(x + size*1.2, y);
+    ctx.lineTo(x, y + size*1.4);
+    ctx.lineTo(x - size*1.2, y);
+    ctx.closePath();
+  }
+  ctx.fill();
+}
+
+class TrendChart {
+  constructor(canvas, tooltipEl){
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.tooltip = tooltipEl;
+    this.dates = [];
+    this.series = [];
+    this.hoverIdx = -1;
+    this.leftName = '上证指数';
+    this.rightName = '数据序列';
+    this._bind();
+    const ro = new ResizeObserver(() => this.resize());
+    ro.observe(canvas.parentElement);
+  }
+  setData(dates, series, opts = {}){
+    this.dates = dates || [];
+    this.series = series || [];
+    this.leftName = opts.leftName || '上证指数';
+    this.rightName = opts.rightName || '数据序列';
+    this.hoverIdx = -1;
+    this.resize();
+  }
+  resize(){
+    const dpr = window.devicePixelRatio || 1;
+    const rect = this.canvas.parentElement.getBoundingClientRect();
+    const W = Math.max(rect.width, 10);
+    const H = Math.max(rect.height, 10);
+    this.canvas.style.width = W + 'px';
+    this.canvas.style.height = H + 'px';
+    this.canvas.width = Math.round(W * dpr);
+    this.canvas.height = Math.round(H * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.W = W; this.H = H;
+    this.draw();
+  }
+  _layout(){
+    const pad = { l: 60, r: 82, t: 62, b: 42 };
+    return { pad, plotW: this.W - pad.l - pad.r, plotH: this.H - pad.t - pad.b };
+  }
+  draw(){
+    const { ctx, W, H, dates, series } = this;
+    if (!ctx || !W || !dates.length) return;
+    ctx.clearRect(0, 0, W, H);
+    const { pad, plotW, plotH } = this._layout();
+    const n = dates.length;
+    const X = i => pad.l + (n <= 1 ? plotW/2 : (i/(n-1)) * plotW);
+
+    const leftS  = series.find(s => s.axis === 0);
+    const rightS = series.filter(s => s.axis === 1);
+
+    let lMin = Infinity, lMax = -Infinity;
+    if (leftS) leftS.data.forEach(v => { if (v != null){ if (v<lMin) lMin=v; if (v>lMax) lMax=v; } });
+    if (!isFinite(lMin)){ lMin=0; lMax=1; }
+    { const sp=(lMax-lMin)||1; lMin-=sp*0.05; lMax+=sp*0.05; }
+
+    let rMin = Infinity, rMax = -Infinity;
+    rightS.forEach(s => s.data.forEach(v => { if (v != null){ if (v<rMin) rMin=v; if (v>rMax) rMax=v; } }));
+    if (!isFinite(rMin)){ rMin=0; rMax=1; }
+    { const sp=(rMax-rMin)||1; rMin-=sp*0.12; rMax+=sp*0.12; }
+
+    const YL = v => pad.t + plotH - ((v-lMin)/(lMax-lMin)) * plotH;
+    const YR = v => pad.t + plotH - ((v-rMin)/(rMax-rMin)) * plotH;
+
+    ctx.strokeStyle = '#eef0f2'; ctx.lineWidth = 1;
+    ctx.font = '10px -apple-system,sans-serif';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++){
+      const y = pad.t + (plotH/4) * i;
+      ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + plotW, y); ctx.stroke();
+      ctx.fillStyle = '#9aa0a6';
+      ctx.textAlign = 'right';
+      ctx.fillText((lMax - (lMax-lMin)*(i/4)).toFixed(0), pad.l - 6, y);
+      ctx.textAlign = 'left';
+      ctx.fillText((rMax - (rMax-rMin)*(i/4)).toFixed(1), pad.l + plotW + 6, y);
+    }
+
+    ctx.fillStyle = '#9aa0a6';
+    ctx.font = 'bold 10px -apple-system,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(this.leftName, pad.l - 4, pad.t - 14);
+    ctx.textAlign = 'right';
+    ctx.fillText(this.rightName, pad.l + plotW + 8, pad.t - 14);
+
+    ctx.font = '10px -apple-system,sans-serif';
+    ctx.fillStyle = '#9aa0a6';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const step = Math.max(1, Math.ceil(n / 9));
+    for (let i = 0; i < n; i += step){
+      ctx.fillText(dates[i].slice(5), X(i), pad.t + plotH + 12);
+    }
+    if ((n - 1) % step !== 0){
+      ctx.fillText(dates[n-1].slice(5), X(n-1), pad.t + plotH + 12);
+    }
+
+    if (leftS){
+      ctx.beginPath();
+      let started = false;
+      leftS.data.forEach((v,i) => {
+        if (v == null) return;
+        const x=X(i), y=YL(v);
+        if (!started){ ctx.moveTo(x,y); started = true; } else ctx.lineTo(x,y);
+      });
+      if (started){
+        ctx.lineTo(X(n-1), pad.t + plotH);
+        ctx.lineTo(X(0),    pad.t + plotH);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(37,99,235,.055)';
+        ctx.fill();
+        ctx.beginPath();
+        started = false;
+        leftS.data.forEach((v,i) => {
+          if (v == null) return;
+          const x=X(i), y=YL(v);
+          if (!started){ ctx.moveTo(x,y); started = true; } else ctx.lineTo(x,y);
+        });
+        ctx.strokeStyle = '#c7cbd1'; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+    }
+
+    rightS.forEach(s => {
+      ctx.beginPath();
+      let started = false;
+      s.data.forEach((v,i) => {
+        if (v == null) return;
+        const x=X(i), y=YR(v);
+        if (!started){ ctx.moveTo(x,y); started = true; } else ctx.lineTo(x,y);
+      });
+      if (started){
+        ctx.strokeStyle = s.color; ctx.lineWidth = 2;
+        ctx.lineJoin = 'round'; ctx.stroke();
+      }
+      s.data.forEach((v,i) => {
+        if (v == null) return;
+        drawSymbol(ctx, X(i), YR(v), s.symbol, 4, s.color);
+      });
+    });
+
+    const occupied = [];
+    ctx.font = '9px -apple-system,sans-serif';
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'center';
+    rightS.forEach(s => {
+      s.data.forEach((v,i) => {
+        if (v == null) return;
+        const x = X(i), y = YR(v);
+        const text = v.toFixed(1);
+        const tw = ctx.measureText(text).width;
+        const r = { x: x - tw/2 - 1, y: y - 17, w: tw + 2, h: 11 };
+        const hit = occupied.some(o =>
+          !(r.x > o.x + o.w || r.x + r.w < o.x || r.y > o.y + o.h || r.y + r.h < o.y));
+        if (hit) return;
+        occupied.push(r);
+        ctx.fillStyle = s.color;
+        ctx.fillText(text, x, y - 7);
+      });
+    });
+
+    if (this.hoverIdx >= 0){
+      const x = X(this.hoverIdx);
+      ctx.strokeStyle = 'rgba(37,99,235,.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4,3]);
+      ctx.beginPath();
+      ctx.moveTo(x, pad.t);
+      ctx.lineTo(x, pad.t + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    let lx = pad.l;
+    const ly = pad.t - 36;
+    ctx.font = '11px -apple-system,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    rightS.forEach(s => {
+      drawSymbol(ctx, lx + 5, ly, s.symbol, 3.5, s.color);
+      ctx.fillStyle = '#4b5563';
+      ctx.fillText(s.name, lx + 14, ly);
+      lx += 14 + ctx.measureText(s.name).width + 16;
+    });
+  }
+  _bind(){
+    const c = this.canvas;
+    c.addEventListener('mousemove', e => {
+      const rect = c.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const { pad, plotW } = this._layout();
+      const n = this.dates.length;
+      if (!n || mx < pad.l - 8 || mx > pad.l + plotW + 8){
+        if (this.hoverIdx !== -1){ this.hoverIdx = -1; this.tooltip.style.display = 'none'; this.draw(); }
+        return;
+      }
+      const ratio = Math.max(0, Math.min(1, (mx - pad.l) / plotW));
+      const idx = Math.round(ratio * (n - 1));
+      this.hoverIdx = idx;
+      this._showTip(e, idx);
+      this.draw();
+    });
+    c.addEventListener('mouseleave', () => {
+      this.hoverIdx = -1;
+      this.tooltip.style.display = 'none';
+      this.draw();
+    });
+  }
+  _showTip(e, idx){
+    const date = this.dates[idx];
+    const rows = this.series.map(s => {
+      const v = s.data[idx];
+      return `<div class="tt-row"><span class="tt-dot" style="background:${s.color}"></span>${esc(s.name)}<b>${v == null ? '—' : v.toFixed(1)}</b></div>`;
+    }).join('');
+    this.tooltip.innerHTML = `<div class="tt-date">${date}</div>${rows}`;
+    this.tooltip.style.display = 'block';
+    const wrapRect = this.canvas.parentElement.getBoundingClientRect();
+    let x = e.clientX - wrapRect.left + 14;
+    let y = e.clientY - wrapRect.top + 14;
+    const tw = this.tooltip.offsetWidth;
+    const th = this.tooltip.offsetHeight;
+    if (x + tw > wrapRect.width - 8) x = wrapRect.width - tw - 8;
+    if (y + th > wrapRect.height - 8) y = wrapRect.height - th - 8;
+    this.tooltip.style.left = x + 'px';
+    this.tooltip.style.top = y + 'px';
+  }
+}
+
+/* =========================================================
+ * 图层
+ * ========================================================= */
+const LAYERS = {
+  market: {
+    label: '两融 / 成交额',
+    title: '上证指数 · 两融 / 成交额',
+    right: '亿元',
+    keys: ['margin', 'turnover']
+  },
+  etf: {
+    label: '宽基ETF净申购 / 成交额',
+    title: '上证指数 · 四只宽基 ETF 净申购与总成交额',
+    right: '亿元',
+    keys: ['etf_510300', 'etf_510300_amount',
+           'etf_510330', 'etf_510330_amount',
+           'etf_510310', 'etf_510310_amount',
+           'etf_510050', 'etf_510050_amount']
+  },
+  commodity: {
+    label: '黄金 / 原油 (08:15)',
+    title: '上证指数 · 纽约金 / 布伦特原油 08:15',
+    right: '美元',
+    keys: ['gold_9am', 'brent_9am']
+  },
+  rates: {
+    label: '中美5年期利率 (收盘)',
+    title: '上证指数 · 中/美 5 年期国债收益率（收盘）',
+    right: '%',
+    keys: ['cn_5y', 'us_5y']
+  }
+};
+let activeLayer = 'market';
+let chart = null;
+
+function renderLayers(){
+  $('#layers').innerHTML = Object.entries(LAYERS).map(([k, v]) =>
+    `<button class="layer-btn ${k === activeLayer ? 'on' : ''}" data-layer="${k}">${esc(v.label)}</button>`
+  ).join('');
+  $('#layers').onclick = e => {
+    const btn = e.target.closest('.layer-btn');
+    if (!btn) return;
+    activeLayer = btn.dataset.layer;
+    renderLayers();
+    renderTrend();
+  };
+}
+
+function renderTrend(){
+  if (!chart) chart = new TrendChart($('#chart'), $('#chart-tt'));
+  const layer = LAYERS[activeLayer];
+  const trend = DATA.trend || {};
+  const dates = trend.dates || [];
+  const seriesMap = trend.series || {};
+
+  const sse = seriesMap.sse_index;
+  const series = [];
+  if (sse) series.push({ ...sse, axis: 0 });
+  layer.keys.forEach(k => {
+    const s = seriesMap[k];
+    if (s) series.push({ ...s, axis: 1 });
+  });
+
+  $('#trend-title').textContent = layer.title;
+  chart.setData(dates, series, { leftName: '上证指数', rightName: layer.right });
+}
+
+/* =========================================================
+ * 日历
+ * ========================================================= */
+const DOW = ['一','二','三','四','五','六','日'];
+let calY, calM;
+
+function initCalendar(){
+  const g = DATA.calendar.generated_at || '2026-11-05T08:15:00+08:00';
+  const d = new Date(g);
+  calY = d.getFullYear();
+  calM = d.getMonth();
+  $('#dow').innerHTML = DOW.map(x => `<div class="cal-dow">${x}</div>`).join('');
+  $('#prev-month').onclick = () => { shiftMonth(-1); renderCalendar(); };
+  $('#next-month').onclick = () => { shiftMonth(1);  renderCalendar(); };
+  renderCalendar();
+}
+function shiftMonth(delta){
+  const d = new Date(calY, calM + delta, 1);
+  calY = d.getFullYear();
+  calM = d.getMonth();
+}
+function renderCalendar(){
+  $('#cal-month').textContent = `${calY} 年 ${calM + 1} 月`;
+  const first = new Date(calY, calM, 1);
+  const lead = (first.getDay() + 6) % 7;
+  const total = new Date(calY, calM + 1, 0).getDate();
+  const today = (DATA.calendar.generated_at || '').slice(0, 10);
+  const days = DATA.calendar.days || {};
+
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push('<div class="cal-day off"></div>');
+
+  for (let day = 1; day <= total; day++){
+    const key = `${calY}-${pad2(calM+1)}-${pad2(day)}`;
+    const wd = new Date(key + 'T00:00:00').getDay();
+    if (wd === 0 || wd === 6){
+      cells.push(`<div class="cal-day off"><div class="d-num">${day}</div></div>`);
+      continue;
+    }
+    const future = key > today;
+    const isToday = key === today;
+    const info = days[key];
+
+    if (!info){
+      cells.push(`
+        <div class="cal-day trade empty" data-day="${key}">
+          <div class="d-num">${day}${future ? '<span class="d-tag future">未来</span>' : ''}</div>
+          <div class="d-line muted">${future ? '未来交易日 · 无到期' : '数据待更新'}</div>
+        </div>`);
+      continue;
+    }
+
+    const repo = info.repo || {};
+    const sent = info.sentiment || null;
+    const unlockN = (info.unlock || []).length;
+    const changeN = (info.change || []).length;
+    const mat = repo.maturity != null ? repo.maturity : 0;
+    const op  = repo.operation;
+
+    let repoLine;
+    if (future){
+      repoLine = mat > 0
+        ? `到期 <b>${f1(mat)}</b> 亿`
+        : '<span style="color:#b0b6bd">未来 · 无到期</span>';
+    } else {
+      repoLine = `操作 <b>${f1(op)}</b> · 到期 <b>${f1(mat)}</b> 亿`;
+    }
+
+    let sentLine;
+    if (sent){
+      sentLine = `情绪 IF <b>${f1(sent.if)}</b> · IC <b>${f1(sent.ic)}</b>`;
+    } else {
+      sentLine = '<span style="color:#b0b6bd">盘后数据待更新</span>';
+    }
+
+    const badges = [];
+    if (unlockN) badges.push(`<span class="badge">解禁 ${unlockN}</span>`);
+    if (changeN) badges.push(`<span class="badge warn">增减持 ${changeN}</span>`);
+    if (info.top5 && info.top5.net != null){
+      const cls = info.top5.net > 0 ? 'tag-up' : 'tag-dn';
+      const sign = info.top5.net > 0 ? '+' : '';
+      badges.push(`<span class="badge">前5 <span class="${cls}">${sign}${f1(info.top5.net)}</span></span>`);
+    }
+
+    cells.push(`
+      <div class="cal-day trade ${isToday ? 'today' : ''}" data-day="${key}">
+        <div class="d-num">${day}${future ? '<span class="d-tag future">未来</span>' : (isToday ? '<span class="d-tag">今天</span>' : '')}</div>
+        <div class="d-line">${repoLine}</div>
+        <div class="d-line">${sentLine}</div>
+        <div class="d-badges">${badges.join('')}</div>
+      </div>`);
+  }
+  $('#cal').innerHTML = cells.join('');
+  bindPopover();
+}
+
+/* =========================================================
+ * 悬浮面板
+ * ========================================================= */
+const pop = $('#popover');
+let hideTimer = null;
+
+function bindPopover(){
+  document.querySelectorAll('.cal-day.trade').forEach(cell => {
+    cell.addEventListener('mouseenter', () => showPopover(cell));
+    cell.addEventListener('mouseleave', () => scheduleHide());
+    cell.addEventListener('click', () => showPopover(cell));
+  });
+}
+function scheduleHide(){
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => { pop.style.display = 'none'; }, 150);
+}
+pop.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+pop.addEventListener('mouseleave', scheduleHide);
+
+function showPopover(cell){
+  clearTimeout(hideTimer);
+  const key = cell.dataset.day;
+  const info = DATA.calendar.days[key];
+  if (!info) return;
+  pop.innerHTML = buildPopover(key, info);
+  pop.style.display = 'block';
+  pop.style.visibility = 'hidden';
+
+  const r = cell.getBoundingClientRect();
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  let left = r.right + 10;
+  if (left + pw > innerWidth - 12) left = r.left - pw - 10;
+  if (left < 12) left = 12;
+  let top = r.top;
+  if (top + ph > innerHeight - 12) top = innerHeight - ph - 12;
+  if (top < 12) top = 12;
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  pop.style.visibility = 'visible';
+}
+
+function signCls(v){ return v > 0 ? 'tag-up' : v < 0 ? 'tag-dn' : ''; }
+
+function buildPopover(key, info){
+  const d = new Date(key + 'T00:00:00');
+  const wk = ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
+  const future = key > (DATA.calendar.generated_at || '').slice(0, 10);
+  const repo = info.repo || {};
+  const parts = [];
+  parts.push(`<div class="pop-head">${key}<span class="wk">${wk}</span></div>`);
+
+  parts.push(`<div class="pop-sec">
+    <div class="pop-title">央行公开市场操作（亿元）</div>
+    <div class="pop-row"><span>操作量</span><b>${future ? '— 不可知' : f1(repo.operation)}</b></div>
+    <div class="pop-row"><span>到期量</span><b>${f1(repo.maturity)}</b></div>
+    ${(repo.detail && repo.detail.length)
+      ? `<div class="pop-note">${repo.detail.map(esc).join('<br>')}</div>`
+      : (future ? '<div class="pop-note">未来操作量不可知，仅展示由历史操作推断的到期量</div>' : '')}
+    <div class="pop-note">买断式回购暂未覆盖</div>
+  </div>`);
+
+  if (info.top5 || info.citic){
+    const t5 = info.top5, ct = info.citic || {};
+    parts.push(`<div class="pop-sec">
+      <div class="pop-title">股指期货会员净持仓（手）</div>
+      <div class="pop-row"><span>前 5 名净持仓合计</span>
+        <b class="${signCls(t5 ? t5.net : 0)}">${t5 ? (t5.net > 0 ? '+' : '') + f1(t5.net) : '—'}</b></div>
+      <div class="pop-row"><span>中信 · IH</span><b class="${signCls(ct.ih)}">${ct.ih == null ? '—' : (ct.ih > 0 ? '+' : '') + f1(ct.ih)}</b></div>
+      <div class="pop-row"><span>中信 · IF</span><b class="${signCls(ct.if)}">${ct.if == null ? '—' : (ct.if > 0 ? '+' : '') + f1(ct.if)}</b></div>
+      <div class="pop-row"><span>中信 · IC</span><b class="${signCls(ct.ic)}">${ct.ic == null ? '—' : (ct.ic > 0 ? '+' : '') + f1(ct.ic)}</b></div>
+      <div class="pop-row"><span>中信 · IM</span><b class="${signCls(ct.im)}">${ct.im == null ? '—' : (ct.im > 0 ? '+' : '') + f1(ct.im)}</b></div>
+      <div class="pop-note">净持仓 = 持买单量 − 持卖单量；前 5 名为口径 A（前 5 多头席位各自净持仓求和）</div>
+    </div>`);
+  }
+
+  if (info.sentiment){
+    const s = info.sentiment;
+    parts.push(`<div class="pop-sec">
+      <div class="pop-title">宽基情绪指标（前 20 净持仓占比 %）</div>
+      <div class="pop-row"><span>IH 上证50</span><b class="${signCls(s.ih)}">${f1(s.ih)}</b></div>
+      <div class="pop-row"><span>IF 沪深300</span><b class="${signCls(s.if)}">${f1(s.if)}</b></div>
+      <div class="pop-row"><span>IC 中证500</span><b class="${signCls(s.ic)}">${f1(s.ic)}</b></div>
+      <div class="pop-row"><span>IM 中证1000</span><b class="${signCls(s.im)}">${f1(s.im)}</b></div>
+      <div class="pop-note">情绪值 = Σ(前20名买持仓 − 卖持仓) / Σ(前20名买 + 卖持仓) × 100，区间 [−100, 100]</div>
+    </div>`);
+  }
+
+  if (info.unlock && info.unlock.length){
+    parts.push(`<div class="pop-sec">
+      <div class="pop-title">限售解禁（${info.unlock.length}）</div>
+      <div class="pop-list">${info.unlock.map(u =>
+        `<div><span class="nm">${esc(u.name)}</span> ${esc(u.code)} · ${f1(u.shares)} 亿股 / ${f1(u.value)} 亿元</div>`
+      ).join('')}</div>
+    </div>`);
+  }
+
+  if (info.change && info.change.length){
+    parts.push(`<div class="pop-sec">
+      <div class="pop-title">股东增减持（${info.change.length}）</div>
+      <div class="pop-list">${info.change.map(c =>
+        `<div><span class="nm">${esc(c.name)}</span> ${esc(c.code)} ·
+          <span class="${c.type === '增持' ? 'tag-up' : 'tag-dn'}">${esc(c.type)}</span>
+          ${f1(c.shares)} 万股 / ${f1(c.value)} 亿元</div>`
+      ).join('')}</div>
+    </div>`);
+  }
+
+  return parts.join('');
+}
+
+boot();
+</script>
+</body>
+</html>
